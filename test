@@ -1,0 +1,112 @@
+import time
+import numpy as np
+import pandas as pd
+
+start_time = time.time()
+
+def calculate_TCI(Q, cost):
+    TCI = Q * np.power(cost, -0.5)
+    return TCI
+
+def get_neighborhood_blocks(U, delta):
+    n = U.shape[0]
+    neighborhoods = []
+    for i in range(n):
+        neighbors = []
+        for j in range(n):
+            if np.linalg.norm(U[i] - U[j]) <= delta:
+                neighbors.append(j)
+        neighborhoods.append(set(neighbors))
+    return neighborhoods
+
+def calculate_positive_region(U, d, delta, alpha):
+    neighborhoods = get_neighborhood_blocks(U, delta)
+    decision_classes = {val: set(np.where(d == val)[0]) for val in np.unique(d)}
+    positive_region = []
+
+    for key, D_j in decision_classes.items():
+        pos = []
+        for x_i in D_j:
+            neighborhood_size = len(neighborhoods[x_i])
+            intersection_size = len(neighborhoods[x_i].intersection(D_j))
+            if intersection_size / neighborhood_size >= alpha:
+                pos.append(x_i)
+        positive_region.append(set(pos))
+
+    return positive_region
+
+def calculate_conditional_information(U, d, delta, alpha, V):
+    n = U.shape[0]
+    neighborhoods = get_neighborhood_blocks(V, delta)
+    positive_region = calculate_positive_region(U, d, delta, alpha)
+    decision_classes = {val: set(np.where(d == val)[0]) for val in np.unique(d)}
+    positive_region_dict = {key: set() for key in decision_classes.keys()}
+    # 遍历正域
+    for region in positive_region:
+        for obj in region:
+            for key, D_j in decision_classes.items():
+                if obj in D_j:
+                    positive_region_dict[key].add(obj)
+
+    def neighborhood_probability(neighborhood):
+        return len(neighborhood) / n
+
+    conditional_information = 0
+    for i in range(n):
+        p_nB_delta_Xi = neighborhood_probability(neighborhoods[i])
+        for D_j in positive_region_dict.values():
+            intersection_size = len(neighborhoods[i].intersection(D_j))
+            if intersection_size > 0:
+                ratio = intersection_size / len(neighborhoods[i])
+                info_part = p_nB_delta_Xi * ratio * (1 - ratio)
+                conditional_information += info_part
+    return conditional_information
+def attribute_reduction(U, d, delta, alpha, Q, cost):
+    C = set(range(U.shape[1]))
+    Core = set()
+    Red = set()
+
+    for b_i in list(C):
+        U_reduced = np.delete(U, b_i, axis=1)
+        if calculate_conditional_information(U, d, delta, alpha, U_reduced) > 0:
+            Core.add(b_i)
+            Red.add(b_i)
+            C.remove(b_i)
+
+    while C:
+        TCI_dict = {}
+        for b_i in C - Red:
+            TCI_dict[b_i] = Q[b_i] * cost[b_i] ** -0.5
+
+        if TCI_dict:
+            max_b_i = max(TCI_dict, key=TCI_dict.get)
+            Red.add(max_b_i)
+            C.remove(max_b_i)
+            print(f"增加条件属性 {max_b_i} 到约简中")
+            print('临时约简：', Red)
+
+            for b_i in list(Red):
+                U_reduced = np.delete(U, b_i, axis=1)
+                U_yuC = np.delete(U_reduced, list(C), axis=1)
+                if calculate_conditional_information(U, d, delta, alpha, U_yuC) == 0:
+                    print(f"从临时约简中移除 {b_i} 由于 I(R|Red-{b_i}) = 0")
+                    Red.remove(b_i)
+
+        break
+    return Red
+
+df = pd.read_csv('data/data_2.csv')
+U = df.iloc[:, :3].values
+d = df['d'].values
+# 参数设置
+delta = 0.125
+alpha = 0.7
+Q = np.array([0.1552, 0.1552, 1.1111])
+cost = np.array([0.0196, 0.0139, 0.0311])
+
+reduct = attribute_reduction(U, d, delta, alpha, Q, cost)
+print("最终约简:", reduct)
+
+end_time = time.time()
+execution_time = end_time - start_time
+print(f"代码运行时间为: {execution_time:.4f} 秒")
