@@ -1,0 +1,40 @@
+import numpy as np
+import pandas as pd
+
+
+df= pd.read_csv('data/data_2.csv')
+
+U = df.iloc[:, :3].values
+d = df['d'].values
+delta = 0.125
+alpha = 0.7
+
+def get_neighborhood_blocks(U, delta):
+    n = U.shape[0]
+    neighborhoods = []
+    for i in range(n):
+        neighbors = []
+        for j in range(n):
+            if np.linalg.norm(U[i] - U[j]) <= delta:
+                neighbors.append(j)
+        neighborhoods.append(set(neighbors))
+    return neighborhoods
+
+def calculate_positive_region(U, d, delta, alpha):
+    neighborhoods = get_neighborhood_blocks(U, delta)
+    decision_classes = {val: set(np.where(d == val)[0]) for val in np.unique(d)}
+    positive_region = []
+
+    for key, D_j in decision_classes.items():
+        pos = []
+        for x_i in D_j:
+            neighborhood_size = len(neighborhoods[x_i])
+            intersection_size = len(neighborhoods[x_i].intersection(D_j))
+            if intersection_size / neighborhood_size >= alpha:
+                pos.append(x_i)
+        positive_region.append(set(pos))
+
+    return positive_region
+
+positive_region = calculate_positive_region(U, d, delta, alpha)
+print(positive_region)
