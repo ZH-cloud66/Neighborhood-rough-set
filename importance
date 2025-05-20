@@ -1,0 +1,172 @@
+import numpy as np
+import pandas as pd
+
+
+df = pd.read_csv('data/1.csv')
+U = df.iloc[:, :6].values
+d = df['d'].values
+delta = 0.125
+
+def get_neighborhood_blocks(U, delta):
+    n = U.shape[0]
+    neighborhoods = []
+    for i in range(n):
+        neighbors = []
+        for j in range(n):
+            if np.linalg.norm(U[i] - U[j]) <= delta:
+                neighbors.append(j)
+        neighborhoods.append(set(neighbors))
+    return neighborhoods
+def calculate_information(U, d, delta, V):
+    n = U.shape[0]
+    neighborhoods = get_neighborhood_blocks(V, delta)
+    decision_classes = {val: set(np.where(d == val)[0]) for val in np.unique(d)}
+
+    def neighborhood_probability(neighborhood):
+        return len(neighborhood) / n
+
+    conditional_information = 0
+
+    for i in range(n):
+        p_nB_delta_Xi = neighborhood_probability(neighborhoods[i])
+        for D_j in decision_classes.values():
+            intersection_size = len(neighborhoods[i].intersection(D_j))
+            if intersection_size > 0:
+                ratio = intersection_size / len(neighborhoods[i])
+                info_part = -p_nB_delta_Xi * ratio * np.log2(ratio)
+                conditional_information += info_part
+    return conditional_information
+
+
+def cal_each_info(U, d, delta):
+    C = set(range(U.shape[1]))
+    cal = {}
+    total_sum = 0
+
+    for b_i in list(C):
+        U_reduced = np.delete(U, list(C-{b_i}), axis=1)
+        cal[b_i] = calculate_information(U, d, delta, U_reduced)
+        total_sum += cal[b_i]
+        print(f"属性 {b_i} 的邻域条件熵: {cal[b_i]}")
+
+    print(f"所有单个属性的邻域条件熵之和: {total_sum}")
+    return total_sum
+
+def delete_each(U, d, delta):
+    C = set(range(U.shape[1]))
+    cal = {}
+
+    for b_i in list(C):
+        U_reduced = np.delete(U, b_i, axis=1)
+        cal[b_i] = calculate_information(U, d, delta, U_reduced)
+        print(f"删除属性 {b_i} 的邻域条件熵: {cal[b_i]}")
+    return True
+
+def cal_delete_info(U, d, delta):
+    C = set(range(U.shape[1]))
+    cal = {}
+    shuzhi = 0
+
+    for b_i in list(C):
+        U_reduced = np.delete(U, b_i, axis=1)
+        cal[b_i] = calculate_information(U, d, delta, U_reduced)
+
+        # print(f"属性 {b_i} 的邻域条件熵: {cal[b_i]}")
+
+        if cal[b_i] > 0:
+            shuzhi = cal[b_i]
+            break  # 终止
+    return shuzhi
+
+def calculate_positive(U, d, delta, V):
+    n = U.shape[0]
+    neighborhoods = get_neighborhood_blocks(V, delta)
+    decision_classes = {val: set(np.where(d == val)[0]) for val in np.unique(d)}
+
+    positive_region = set()
+    for i in range(n):
+        for D_j in decision_classes.values():
+            if neighborhoods[i].issubset(D_j):
+                positive_region.add(i)
+                break
+    return positive_region
+
+
+def calculate_dependency(U, d, delta, V):
+    positive_region = calculate_positive(U, d, delta, V)
+    dependency = len(positive_region) / U.shape[0]
+    return dependency
+
+dependency_B = calculate_dependency(U, d, delta, U)
+print(f"所有条件属性的依赖度 YB(D): {dependency_B}")
+
+def cal_attribute_dependency(U, d, delta):
+    C = set(range(U.shape[1]))
+    dependencies = {}
+
+    for b_i in list(C):
+        U_reduced = np.delete(U, b_i, axis=1)
+        dependencies[b_i] = calculate_dependency(U, d, delta, U_reduced)
+        print(f"删除属性 {b_i} 的依赖度 YB-{b_i}(D): {dependencies[b_i]}")
+
+    return dependencies
+
+
+def calculate_gamma(U, d, delta, V):
+    return calculate_dependency(U, d, delta, V)
+
+def calculate_Qb(U, d, delta):
+    C = set(range(U.shape[1]))
+    H_B_D = calculate_information(U, d, delta, U)
+    gamma_B_D = calculate_gamma(U, d, delta, U)
+
+    Q_values = {}
+    Q_b = 0
+    Q_b_array = []
+    for b in C:
+        U_reduced = np.delete(U, b, axis=1)
+
+        gamma_B_b_D = calculate_gamma(U, d, delta, U_reduced)
+
+        if gamma_B_b_D != gamma_B_D:
+            Q_b = abs(gamma_B_b_D - gamma_B_D) + 1
+        else:
+            H_B_b_D = calculate_information(U, d, delta, U_reduced)
+
+            H_sum = 0
+            for a in C:
+                U_reduced_a = np.delete(U, list(C-{a}), axis=1)
+                H_sum += calculate_information(U, d, delta, U_reduced_a)
+
+                if gamma_B_b_D == gamma_B_D:
+                    neighborhoods = get_neighborhood_blocks(U_reduced, delta)
+                    decision_classes = {val: set(np.where(d == val)[0]) for val in np.unique(d)}
+                    for i in C:
+                        for D_j in decision_classes.values():
+                            intersection_size = len(neighborhoods[i].intersection(D_j))
+                            if intersection_size > 0:
+                                Q_b = H_B_b_D / H_sum
+
+                            else:
+                                Q_b = cal_delete_info(U,d,delta)  / H_sum
+        Q_values[b] = Q_b
+        print(f"属性 {b} 的重要度 Q(b): {Q_b}")
+        Q_b_array = np.array([Q_values[b] for b in sorted(Q_values.keys())])
+        Q_b_array = np.round(Q_b_array, 4)
+
+    return Q_b_array
+
+attribute_dependencies = cal_attribute_dependency(U, d, delta)
+print(attribute_dependencies)
+
+con = calculate_information(U, d, delta, U)
+print(f"所有条件属性下的邻域条件熵: {con}")
+dele = cal_delete_info(U, d, delta)
+print(dele)
+each = cal_each_info(U, d, delta)
+delete_each = delete_each(U, d, delta)
+Q_values = calculate_Qb(U, d, delta)
+print(Q_values)
+
+
+
